@@ -18,7 +18,7 @@ impl Default for ShortcutConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     #[serde(default)]
     pub mic_shortcut: ShortcutConfig,
@@ -26,6 +26,23 @@ pub struct Settings {
     pub show_in_dock: bool,
     #[serde(default)]
     pub launch_at_login: bool,
+    #[serde(default = "default_show_popup")]
+    pub show_popup: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            mic_shortcut: ShortcutConfig::default(),
+            show_in_dock: false,
+            launch_at_login: false,
+            show_popup: true,
+        }
+    }
+}
+
+fn default_show_popup() -> bool {
+    true
 }
 
 impl Settings {
@@ -73,6 +90,24 @@ mod tests {
         assert!(sc.modifiers.contains(&"shift".to_string()));
         assert!(sc.modifiers.contains(&"meta".to_string()));
     }
+    #[test]
+    fn test_default_settings_show_popup() {
+        assert!(Settings::default().show_popup);
+    }
+
+    #[test]
+    fn test_settings_json_missing_show_popup_defaults_to_enabled() {
+        let loaded: Settings = serde_json::from_str(
+            r#"{
+                "mic_shortcut": {
+                    "key": "F13"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert!(loaded.show_popup);
+    }
 
     #[test]
     fn test_settings_json_round_trip() {
@@ -81,6 +116,7 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let loaded: Settings = serde_json::from_str(&json).unwrap();
         assert_eq!(loaded.mic_shortcut.key, "A");
+        assert!(loaded.show_popup);
     }
 
     #[test]
@@ -115,6 +151,7 @@ mod tests {
             },
             show_in_dock: false,
             launch_at_login: false,
+            show_popup: false,
         };
 
         let json = serde_json::to_string_pretty(&s).unwrap();
@@ -123,6 +160,7 @@ mod tests {
         let loaded: Settings =
             serde_json::from_str(&fs::read_to_string(&tmp_path).unwrap()).unwrap();
         assert_eq!(loaded.mic_shortcut.key, "M");
+        assert!(!loaded.show_popup);
 
         let _ = fs::remove_file(&tmp_path);
     }

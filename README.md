@@ -23,7 +23,7 @@ Mute with <kbd>Cmd</kbd> <kbd>Shift</kbd> <kbd>A</kbd> or from the system tray d
   - [x] Popup window shouldn't appear in screenshots or recordings and ignores mouse events
   - [x] Popup follows screens and monitors with cursor
 - [x] Report whether camera is in use (disabling cameras appears to be impossible or too difficult for the scope of this project)
-- [x] Add configurable settings (hotkey, startup)
+- [x] Add configurable settings (hotkey, startup, popup visibility)
 - [x] Open app on system startup
 
 ## Limitations

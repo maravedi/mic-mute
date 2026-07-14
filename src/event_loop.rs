@@ -8,8 +8,11 @@ use async_std::task;
 use global_hotkey::GlobalHotKeyEvent;
 use log::trace;
 use muda::{MenuEvent, MenuId};
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 use tao::event::Event;
 use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
@@ -34,6 +37,7 @@ pub struct EventIds {
     pub button_toggle_mute: MenuId,
     pub button_launch_at_login: MenuId,
     pub button_show_in_dock: MenuId,
+    pub button_show_popup: MenuId,
     pub button_about: MenuId,
     pub button_quit: MenuId,
     pub shortcut_mic: Arc<AtomicU32>,
@@ -45,14 +49,14 @@ fn update_mic(
     proxy: EventLoopProxyMessage,
     toggle: bool,
 ) {
-    let mut controller = controller.write().unwrap();
+    let mut controller = controller.write();
     if toggle || controller.should_enforce_mute() {
         let state = if toggle { None } else { Some(true) };
         if let Err(err) = controller.toggle(state) {
             log::error!("Failed to update microphone mute state: {}", err);
         }
         let device_name = controller.active_device_name();
-        let mut ui = ui.write().unwrap();
+        let mut ui = ui.write();
         ui.update_mic(controller.muted, device_name.as_deref())
             .unwrap();
     }
@@ -65,7 +69,7 @@ fn update_mic(
 }
 
 pub fn restore_microphone_on_exit(controller: &Arc<RwLock<MicController>>) {
-    if let Err(err) = controller.write().unwrap().restore_on_exit() {
+    if let Err(err) = controller.write().restore_on_exit() {
         log::error!("Failed to restore microphone state on exit: {}", err);
     }
 }
@@ -82,6 +86,7 @@ pub fn start(
         button_toggle_mute,
         button_launch_at_login,
         button_show_in_dock,
+        button_show_popup,
         button_about,
         button_quit,
         shortcut_mic,
@@ -104,13 +109,8 @@ pub fn start(
     let camera_bg = camera.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(2));
-        let active = objc::rc::autoreleasepool(|| {
-            camera_bg
-                .read()
-                .unwrap()
-                .is_running_anywhere()
-                .unwrap_or(false)
-        });
+        let active =
+            objc::rc::autoreleasepool(|| camera_bg.read().is_running_anywhere().unwrap_or(false));
         proxy_camera
             .send_event(Message::CameraStateChanged(active))
             .ok();
@@ -119,7 +119,7 @@ pub fn start(
     trace!("Starting event loop");
     let proxy = event_loop.create_proxy();
     // Set activation policy based on persisted show_in_dock before the loop starts.
-    let initial_show_in_dock = settings.read().unwrap().show_in_dock;
+    let initial_show_in_dock = settings.read().show_in_dock;
     event_loop.set_activation_policy(if initial_show_in_dock {
         ActivationPolicy::Regular
     } else {
@@ -130,17 +130,17 @@ pub fn start(
 
         match event {
             Event::UserEvent(Message::HidePopup) => {
-                let mic_controller = controller.read().unwrap();
+                let mic_controller = controller.read();
                 if !mic_controller.muted {
-                    let mut ui = ui.write().unwrap();
+                    let mut ui = ui.write();
                     ui.hide_popup().unwrap();
                 }
             }
             Event::UserEvent(Message::CameraStateChanged(active)) => {
                 let muted = !active;
-                if muted != camera.read().unwrap().muted {
-                    camera.write().unwrap().muted = muted;
-                    ui.write().unwrap().update_camera(muted).unwrap();
+                if muted != camera.read().muted {
+                    camera.write().muted = muted;
+                    ui.write().update_camera(muted).unwrap();
                 }
             }
             _ => {}
@@ -156,7 +156,7 @@ pub fn start(
                 update_mic(ui.clone(), controller.clone(), proxy.clone(), true);
             } else if event.id == button_launch_at_login {
                 trace!("Launch at login toggled");
-                let mut s = settings.write().unwrap();
+                let mut s = settings.write();
                 s.launch_at_login = !s.launch_at_login;
                 let enabled = s.launch_at_login;
                 if let Err(e) = s.save() {
@@ -168,7 +168,7 @@ pub fn start(
                 }
             } else if event.id == button_show_in_dock {
                 trace!("Show in dock toggled");
-                let mut s = settings.write().unwrap();
+                let mut s = settings.write();
                 s.show_in_dock = !s.show_in_dock;
                 let visible = s.show_in_dock;
                 if let Err(e) = s.save() {
@@ -176,13 +176,25 @@ pub fn start(
                 }
                 drop(s);
                 launch_at_login::set_dock_visible(visible);
+            } else if event.id == button_show_popup {
+                trace!("Show popup toggled");
+                let mut s = settings.write();
+                s.show_popup = !s.show_popup;
+                let visible = s.show_popup;
+                if let Err(e) = s.save() {
+                    log::error!("Failed to save settings: {}", e);
+                }
+                drop(s);
+                if let Err(e) = ui.write().set_popup_enabled(visible) {
+                    log::error!("Failed to apply popup setting: {}", e);
+                }
             } else if event.id == button_about {
                 trace!("About tray menu item selected");
-                let mut s = settings.write().unwrap();
+                let mut s = settings.write();
                 match show_about(&mut s) {
                     Ok(true) => {
                         // Reset to Default clicked — apply all settings immediately
-                        let mut ui = ui.write().unwrap();
+                        let mut ui = ui.write();
                         if let Err(e) = ui.apply_settings(&s) {
                             log::error!("Failed to apply settings: {}", e);
                         } else {
@@ -214,10 +226,10 @@ pub fn start(
                 last_settings_mtime = current_mtime;
                 trace!("settings.json changed on disk — reloading");
                 let new_settings = Settings::load();
-                let mut s = settings.write().unwrap();
+                let mut s = settings.write();
                 *s = new_settings.clone();
                 drop(s);
-                let mut ui_w = ui.write().unwrap();
+                let mut ui_w = ui.write();
                 if let Err(e) = ui_w.apply_settings(&new_settings) {
                     log::error!("Failed to apply reloaded settings: {}", e);
                 } else {
@@ -231,7 +243,7 @@ pub fn start(
         if last_poll.elapsed() >= poll_interval {
             last_poll = Instant::now();
             update_mic(ui.clone(), controller.clone(), proxy.clone(), false);
-            let mut ui_w = ui.write().unwrap();
+            let mut ui_w = ui.write();
             ui_w.detect().unwrap();
         }
 

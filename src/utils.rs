@@ -1,5 +1,6 @@
 use libc::c_void;
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 type CGFloat = f64;
 
