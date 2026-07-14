@@ -62,4 +62,4 @@ The tray menu can also toggle this setting.
 
 Mic Mute checks the file every two seconds and reloads it when its modification time changes. Valid changes apply without a restart. The tray menu writes its setting changes to this file.
 
-When an existing valid settings file does not contain `show_popup`, Mic Mute adds it with the default value `true` the first time that file is loaded. This normally happens at startup, but the same migration also runs if the file is later reloaded while the app is running. Existing values are preserved, and unknown JSON fields are retained during this migration. A settings file is not created solely because this migration is available; it is created when settings are saved. Normal saves serialize the documented settings fields.
+Fields omitted from the settings file use the documented defaults, including `show_popup: true`. Loading settings does not rewrite the file. The file is created or updated when settings are explicitly saved, such as through a tray-menu setting change. Normal saves serialize the documented settings fields.
