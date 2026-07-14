@@ -38,6 +38,8 @@ Controls whether Mic Mute appears in the macOS Dock.
 - `false` (default): run as a menu bar accessory.
 - `true`: show an application icon in the Dock.
 
+The tray menu can also toggle this setting.
+
 ### `launch_at_login`
 
 Controls whether Mic Mute opens when the user logs in.
@@ -58,6 +60,6 @@ The tray menu can also toggle this setting.
 
 ## Editing settings
 
-Mic Mute checks the file for changes while running and applies valid changes without a restart. The tray menu writes its setting changes to this file.
+Mic Mute checks the file every two seconds and reloads it when its modification time changes. Valid changes apply without a restart. The tray menu writes its setting changes to this file.
 
-When an existing valid settings file does not contain `show_popup`, Mic Mute adds it with the default value `true` once at startup. Existing values are preserved, and unknown JSON fields are retained during this migration. A settings file is not created solely because this migration is available; it is created when settings are saved. Normal saves serialize the documented settings fields.
+When an existing valid settings file does not contain `show_popup`, Mic Mute adds it with the default value `true` the first time that file is loaded. This normally happens at startup, but the same migration also runs if the file is later reloaded while the app is running. Existing values are preserved, and unknown JSON fields are retained during this migration. A settings file is not created solely because this migration is available; it is created when settings are saved. Normal saves serialize the documented settings fields.
