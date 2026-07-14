@@ -66,6 +66,7 @@ pub struct Tray {
     pub toggle_mute: MenuItem,
     pub launch_at_login: CheckMenuItem,
     pub show_in_dock: CheckMenuItem,
+    pub show_popup: CheckMenuItem,
     pub about: MenuItem,
     pub quit: MenuItem,
 }
@@ -77,6 +78,7 @@ impl Tray {
         app_vars: AppVars,
         login_enabled: bool,
         dock_visible: bool,
+        popup_visible: bool,
         mic_shortcut: &ShortcutConfig,
     ) -> Result<Self> {
         trace!("Creating tray icon");
@@ -89,6 +91,7 @@ impl Tray {
         );
         let launch_at_login = CheckMenuItem::new("Launch at Login", true, login_enabled, None);
         let show_in_dock = CheckMenuItem::new("Show in Dock", true, dock_visible, None);
+        let show_popup = CheckMenuItem::new("Show Popup", true, popup_visible, None);
         let about = MenuItem::new("About", true, None);
         let quit = MenuItem::new("Exit", true, None);
 
@@ -98,6 +101,7 @@ impl Tray {
                 &PredefinedMenuItem::separator(),
                 &launch_at_login,
                 &show_in_dock,
+                &show_popup,
                 &about,
                 &PredefinedMenuItem::separator(),
                 &quit,
@@ -118,6 +122,7 @@ impl Tray {
             toggle_mute,
             launch_at_login,
             show_in_dock,
+            show_popup,
             about,
             quit,
         };
@@ -162,6 +167,10 @@ impl Tray {
 
     pub fn show_in_dock_id(&self) -> &MenuId {
         self.show_in_dock.id()
+    }
+
+    pub fn show_popup_id(&self) -> &MenuId {
+        self.show_popup.id()
     }
 
     pub fn about_id(&self) -> &MenuId {

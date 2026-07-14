@@ -27,6 +27,10 @@ fn get_mute_title_text(muted: bool) -> &'static str {
     }
 }
 
+fn should_show_popup(enabled: bool, muted: bool) -> bool {
+    enabled && muted
+}
+
 fn monitor_contains_physical_position(
     position: PhysicalPosition<f64>,
     monitor_position: PhysicalPosition<f64>,
@@ -61,10 +65,11 @@ pub struct Popup {
     window: Window,
     content: PopupContent,
     current_monitor: Option<MonitorHandle>,
+    enabled: bool,
 }
 
 impl Popup {
-    pub fn new(event_loop: &EventLoopMessage, mic_muted: bool) -> Result<Self> {
+    pub fn new(event_loop: &EventLoopMessage, mic_muted: bool, enabled: bool) -> Result<Self> {
         let camera_muted = false;
         let initial_monitor = Popup::get_initial_monitor(event_loop);
         let size = Popup::get_size();
@@ -109,6 +114,7 @@ impl Popup {
             window,
             content,
             current_monitor: initial_monitor,
+            enabled,
         };
         Ok(popup)
     }
@@ -135,7 +141,7 @@ impl Popup {
             self.get_theme(),
             active_device_name,
         )?;
-        if mic_muted {
+        if should_show_popup(self.enabled, mic_muted) {
             self.show_front();
         }
         Ok(self)
@@ -143,6 +149,13 @@ impl Popup {
 
     pub fn hide(&mut self) -> Result<&mut Self> {
         self.window.set_visible(false);
+        Ok(self)
+    }
+    pub fn set_enabled(&mut self, enabled: bool) -> Result<&mut Self> {
+        self.enabled = enabled;
+        if !enabled {
+            self.hide()?;
+        }
         Ok(self)
     }
 
@@ -211,6 +224,10 @@ impl Popup {
     }
 
     fn show_front(&self) {
+        if !self.enabled {
+            return;
+        }
+
         self.window.set_visible(true);
         unsafe {
             let ns_window = self.window.ns_window() as id;
@@ -264,5 +281,11 @@ mod tests {
             monitor_position,
             monitor_size
         ));
+    }
+    #[test]
+    fn popup_visibility_requires_enabled_setting_and_mute() {
+        assert!(should_show_popup(true, true));
+        assert!(!should_show_popup(false, true));
+        assert!(!should_show_popup(true, false));
     }
 }

@@ -30,7 +30,8 @@ impl UI {
         settings: &Settings,
     ) -> Result<(Self, EventLoopMessage, EventIds)> {
         let event_loop = create();
-        let popup = Popup::new(&event_loop, mic_muted).context("Failed to setup popup window")?;
+        let popup = Popup::new(&event_loop, mic_muted, settings.show_popup)
+            .context("Failed to setup popup window")?;
         let theme = popup.get_theme();
         let tray = Tray::new(
             mic_muted,
@@ -38,6 +39,7 @@ impl UI {
             app_vars,
             settings.launch_at_login,
             settings.show_in_dock,
+            settings.show_popup,
             &settings.mic_shortcut,
         )
         .context("Failed to create system tray")?;
@@ -47,6 +49,7 @@ impl UI {
             button_toggle_mute: tray.toggle_mute_id().clone(),
             button_launch_at_login: tray.launch_at_login_id().clone(),
             button_show_in_dock: tray.show_in_dock_id().clone(),
+            button_show_popup: tray.show_popup_id().clone(),
             button_about: tray.about_id().clone(),
             button_quit: tray.quit_id().clone(),
             shortcut_mic: Arc::new(AtomicU32::new(shortcuts.mic_hotkey.id())),
@@ -92,6 +95,14 @@ impl UI {
         Ok(self)
     }
 
+    pub fn set_popup_enabled(&mut self, enabled: bool) -> Result<()> {
+        self.popup
+            .set_enabled(enabled)
+            .context("Failed to apply popup setting")?;
+        self.tray.show_popup.set_checked(enabled);
+        Ok(())
+    }
+
     /// Apply all settings to the live app state.
     /// Safe to call whenever settings change — all operations are idempotent.
     pub fn apply_settings(&mut self, settings: &Settings) -> Result<()> {
@@ -100,6 +111,9 @@ impl UI {
         self.tray
             .update_accelerators(&settings.mic_shortcut)
             .context("Failed to update tray accelerators")?;
+
+        // Sync popup visibility with the persisted setting
+        self.set_popup_enabled(settings.show_popup)?;
 
         // Sync dock visibility and its tray checkbox
         self.tray.show_in_dock.set_checked(settings.show_in_dock);

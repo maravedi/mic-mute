@@ -8,7 +8,7 @@ A system-wide mute for macOS microphones with a global shortcut and visual confi
 
 ![popup window screenshot indicating the microphone is off](./screenshot.png)
 
-Mute with <kbd>Cmd</kbd> <kbd>Shift</kbd> <kbd>A</kbd> or from the system tray dropdown. This is configurable from a settings file in `~/Library/Application Support/mic-mute/settings.json`.
+Mute with <kbd>Cmd</kbd> <kbd>Shift</kbd> <kbd>A</kbd> or from the system tray dropdown. See the [settings documentation](./docs/settings.md) for the settings location, defaults, and available options.
 
 ## Features
 
@@ -23,7 +23,7 @@ Mute with <kbd>Cmd</kbd> <kbd>Shift</kbd> <kbd>A</kbd> or from the system tray d
   - [x] Popup window shouldn't appear in screenshots or recordings and ignores mouse events
   - [x] Popup follows screens and monitors with cursor
 - [x] Report whether camera is in use (disabling cameras appears to be impossible or too difficult for the scope of this project)
-- [x] Add configurable settings (hotkey, startup)
+- [x] Add configurable settings (hotkey, startup, popup visibility)
 - [x] Open app on system startup
 
 ## Limitations
