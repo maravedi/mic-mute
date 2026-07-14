@@ -73,10 +73,17 @@ impl Settings {
 
     fn load_from_path(path: &Path) -> Option<Self> {
         let data = std::fs::read_to_string(path).ok()?;
-        let settings = serde_json::from_str(&data).ok()?;
+        Self::load_from_data(&data, |migrated_data| std::fs::write(path, migrated_data))
+    }
 
-        if let Some(migrated_data) = seed_show_popup_setting(&data) {
-            if let Err(error) = std::fs::write(path, migrated_data) {
+    fn load_from_data<F>(data: &str, write_migration: F) -> Option<Self>
+    where
+        F: FnOnce(String) -> std::io::Result<()>,
+    {
+        let settings = serde_json::from_str(data).ok()?;
+
+        if let Some(migrated_data) = seed_show_popup_setting(data) {
+            if let Err(error) = write_migration(migrated_data) {
                 log::warn!("Failed to seed show_popup setting: {error}");
             }
         }
@@ -186,6 +193,75 @@ mod tests {
             serde_json::Value::String("preserve me".to_string())
         );
 
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_load_from_data_keeps_settings_when_migration_write_fails() {
+        let loaded = Settings::load_from_data(r#"{"show_in_dock": true}"#, |_| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "read-only",
+            ))
+        })
+        .unwrap();
+
+        assert!(loaded.show_in_dock);
+        assert!(loaded.show_popup);
+    }
+
+    #[test]
+    fn test_load_from_path_does_not_rewrite_existing_show_popup() {
+        use std::fs;
+
+        for (suffix, show_popup) in [("false", false), ("true", true)] {
+            let path = std::env::temp_dir().join(format!(
+                "mic-mute-test-settings-existing-{}-{}.json",
+                std::process::id(),
+                suffix
+            ));
+            let original =
+                format!(r#"{{"show_popup": {show_popup}, "future_setting": "preserve"}}"#);
+            fs::write(&path, &original).unwrap();
+
+            let loaded = Settings::load_from_path(&path).unwrap();
+            let after = fs::read_to_string(&path).unwrap();
+
+            assert_eq!(loaded.show_popup, show_popup);
+            assert_eq!(after, original);
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn test_load_from_path_skips_invalid_json() {
+        use std::fs;
+
+        let path = std::env::temp_dir().join(format!(
+            "mic-mute-test-settings-invalid-{}.json",
+            std::process::id()
+        ));
+        let original = "not json";
+        fs::write(&path, original).unwrap();
+
+        assert!(Settings::load_from_path(&path).is_none());
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_load_from_path_does_not_migrate_non_object_json() {
+        use std::fs;
+
+        let path = std::env::temp_dir().join(format!(
+            "mic-mute-test-settings-array-{}.json",
+            std::process::id()
+        ));
+        let original = "[]";
+        fs::write(&path, original).unwrap();
+
+        let _ = Settings::load_from_path(&path);
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
         let _ = fs::remove_file(path);
     }
 
