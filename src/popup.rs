@@ -1,10 +1,11 @@
 use crate::event_loop::EventLoopMessage;
 use crate::popup_content::PopupContent;
+use crate::settings::OverlayPosition;
 use crate::utils::get_cursor_pos;
 use anyhow::{Context, Result};
 use cocoa::{
-    appkit::{NSView, NSWindow, NSWindowStyleMask, NSWindowTitleVisibility},
-    base::{id, YES},
+    appkit::{NSView, NSWindow},
+    base::{id, NO, YES},
 };
 use log::trace;
 use tao::{
@@ -45,19 +46,9 @@ fn monitor_contains_physical_position(
 fn setup_window(window: id) {
     unsafe {
         window.setHasShadow_(true);
-        // Rounded edges hack: https://stackoverflow.com/a/37418915
-        let mask = window.styleMask();
-        let _: () = msg_send![
-            window,
-            setStyleMask: mask
-                | NSWindowStyleMask::NSTitledWindowMask
-                | NSWindowStyleMask::NSFullSizeContentViewWindowMask
-        ];
-        let _: () = msg_send![
-            window,
-            setTitleVisibility: NSWindowTitleVisibility::NSWindowTitleHidden
-        ];
-        let _: () = msg_send![window, setTitlebarAppearsTransparent: YES];
+        let _: () = msg_send![window, setOpaque: NO];
+        let clear: id = msg_send![class!(NSColor), clearColor];
+        let _: () = msg_send![window, setBackgroundColor: clear];
     };
 }
 
@@ -66,10 +57,16 @@ pub struct Popup {
     content: PopupContent,
     current_monitor: Option<MonitorHandle>,
     enabled: bool,
+    position: OverlayPosition,
 }
 
 impl Popup {
-    pub fn new(event_loop: &EventLoopMessage, mic_muted: bool, enabled: bool) -> Result<Self> {
+    pub fn new(
+        event_loop: &EventLoopMessage,
+        mic_muted: bool,
+        enabled: bool,
+        position: OverlayPosition,
+    ) -> Result<Self> {
         let camera_muted = false;
         let initial_monitor = Popup::get_initial_monitor(event_loop);
         let size = Popup::get_size();
@@ -82,7 +79,8 @@ impl Popup {
             .with_movable_by_window_background(true)
             .with_always_on_top(true)
             .with_closable(false)
-            .with_content_protection(true)
+            .with_content_protection(false)
+            .with_transparent(true)
             .with_decorations(false)
             .with_inner_size(size)
             .with_maximized(false)
@@ -92,7 +90,7 @@ impl Popup {
             .with_visible(false)
             .with_has_shadow(true);
         if let Some(monitor) = initial_monitor.as_ref() {
-            builder = builder.with_position(Popup::get_position(monitor, size));
+            builder = builder.with_position(Popup::get_position(monitor, size, position));
         }
         let window = builder
             .build(event_loop)
@@ -104,6 +102,14 @@ impl Popup {
         let content = PopupContent::new(mic_muted, camera_muted, size, window.theme())?;
         unsafe {
             let ns_view = window.ns_view() as id;
+            let _: () = msg_send![ns_view, setWantsLayer: YES];
+            let layer: id = msg_send![ns_view, layer];
+            let background: id = msg_send![class!(NSColor),
+                colorWithRed: 0.11_f64 green: 0.11_f64 blue: 0.12_f64 alpha: 0.94_f64];
+            let background_color: *const std::os::raw::c_void = msg_send![background, CGColor];
+            let _: () = msg_send![layer, setBackgroundColor: background_color];
+            let _: () = msg_send![layer, setCornerRadius: 14.0_f64];
+            let _: () = msg_send![layer, setMasksToBounds: YES];
             ns_view.addSubview_(content.view);
             let _: () = msg_send![content.view, release];
             let ns_window = window.ns_window() as id;
@@ -115,12 +121,13 @@ impl Popup {
             content,
             current_monitor: initial_monitor,
             enabled,
+            position,
         };
         Ok(popup)
     }
 
     fn get_size() -> WindowSize {
-        LogicalSize::new(250., 40.)
+        LogicalSize::new(300., 56.)
     }
 
     pub fn get_theme(&self) -> Theme {
@@ -159,6 +166,11 @@ impl Popup {
         Ok(self)
     }
 
+    pub fn set_position(&mut self, position: OverlayPosition) -> Result<&mut Self> {
+        self.position = position;
+        self.update_placement()
+    }
+
     pub fn update_placement(&mut self) -> Result<&mut Self> {
         if let Some(monitor) = self.get_current_monitor()? {
             let monitor_changed = self.current_monitor.as_ref() != Some(&monitor);
@@ -170,7 +182,7 @@ impl Popup {
             let size = Popup::get_size();
             self.window.set_inner_size(size);
             self.window
-                .set_outer_position(Popup::get_position(&monitor, size));
+                .set_outer_position(Popup::get_position(&monitor, size, self.position));
             self.current_monitor = Some(monitor);
 
             if was_visible {
@@ -235,14 +247,52 @@ impl Popup {
         }
     }
 
-    fn get_position(monitor: &MonitorHandle, window_size: WindowSize) -> LogicalPosition<f64> {
+    fn get_position(
+        monitor: &MonitorHandle,
+        window_size: WindowSize,
+        position: OverlayPosition,
+    ) -> LogicalPosition<f64> {
         let scale = monitor.scale_factor();
         let monitor_position = monitor.position().to_logical::<f64>(scale);
         let monitor_size = monitor.size().to_logical::<f64>(scale);
-        let x: f64 = (monitor_position.x + (monitor_size.width / 2.)) - (window_size.width / 2.);
-        let y: f64 = (monitor_position.y + monitor_size.height) - (window_size.height * 2.);
-        LogicalPosition::new(x, y)
+        popup_position_for_bounds(monitor_position, monitor_size, window_size, position)
     }
+}
+
+/// Translates a user-facing overlay anchor to Tao's macOS window coordinate
+/// space. Kept independent from `MonitorHandle` so every anchor can be
+/// verified without a physical display.
+fn popup_position_for_bounds(
+    monitor_position: LogicalPosition<f64>,
+    monitor_size: LogicalSize<f64>,
+    window_size: WindowSize,
+    position: OverlayPosition,
+) -> LogicalPosition<f64> {
+    const HORIZONTAL_INSET: f64 = 24.;
+    let x = match position {
+        OverlayPosition::TopLeft | OverlayPosition::BottomLeft => {
+            monitor_position.x + HORIZONTAL_INSET
+        }
+        OverlayPosition::TopCenter | OverlayPosition::BottomCenter => {
+            (monitor_position.x + (monitor_size.width / 2.)) - (window_size.width / 2.)
+        }
+        OverlayPosition::TopRight | OverlayPosition::BottomRight => {
+            monitor_position.x + monitor_size.width - window_size.width - HORIZONTAL_INSET
+        }
+    };
+    // Tao's macOS window coordinates are inverted vertically relative to
+    // the user-facing labels: smaller Y appears toward the top of a screen.
+    let y = match position {
+        OverlayPosition::TopLeft | OverlayPosition::TopCenter | OverlayPosition::TopRight => {
+            monitor_position.y + window_size.height
+        }
+        OverlayPosition::BottomLeft
+        | OverlayPosition::BottomCenter
+        | OverlayPosition::BottomRight => {
+            (monitor_position.y + monitor_size.height) - (window_size.height * 2.)
+        }
+    };
+    LogicalPosition::new(x, y)
 }
 
 #[cfg(test)]
@@ -287,5 +337,30 @@ mod tests {
         assert!(should_show_popup(true, true));
         assert!(!should_show_popup(false, true));
         assert!(!should_show_popup(true, false));
+    }
+
+    #[test]
+    fn overlay_position_labels_match_the_visible_screen_anchors() {
+        let monitor_position = LogicalPosition::new(0., 0.);
+        let monitor_size = LogicalSize::new(1440., 900.);
+        let popup_size = LogicalSize::new(300., 56.);
+        let anchors = [
+            (OverlayPosition::TopLeft, 24., 56.),
+            (OverlayPosition::TopCenter, 570., 56.),
+            (OverlayPosition::TopRight, 1116., 56.),
+            (OverlayPosition::BottomLeft, 24., 788.),
+            (OverlayPosition::BottomCenter, 570., 788.),
+            (OverlayPosition::BottomRight, 1116., 788.),
+        ];
+
+        for (label, expected_x, expected_y) in anchors {
+            let actual =
+                popup_position_for_bounds(monitor_position, monitor_size, popup_size, label);
+            assert_eq!(
+                actual.x, expected_x,
+                "wrong horizontal anchor for {label:?}"
+            );
+            assert_eq!(actual.y, expected_y, "wrong vertical anchor for {label:?}");
+        }
     }
 }

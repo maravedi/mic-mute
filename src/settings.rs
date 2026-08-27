@@ -1,6 +1,28 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::process::Command;
+
+/// A screen-relative anchor for the mute-status overlay.
+///
+/// The overlay always follows the display containing the cursor; this setting
+/// only controls where it is placed within that display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayPosition {
+    TopLeft,
+    TopCenter,
+    TopRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
+impl Default for OverlayPosition {
+    fn default() -> Self {
+        Self::TopCenter
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShortcutConfig {
@@ -28,6 +50,10 @@ pub struct Settings {
     pub launch_at_login: bool,
     #[serde(default = "default_show_popup")]
     pub show_popup: bool,
+    #[serde(default)]
+    pub diagnostic_logging: bool,
+    #[serde(default)]
+    pub overlay_position: OverlayPosition,
 }
 
 impl Default for Settings {
@@ -37,6 +63,8 @@ impl Default for Settings {
             show_in_dock: false,
             launch_at_login: false,
             show_popup: true,
+            diagnostic_logging: false,
+            overlay_position: OverlayPosition::default(),
         }
     }
 }
@@ -50,31 +78,42 @@ impl Settings {
         Self::load_from_file().unwrap_or_default()
     }
 
-    fn config_path() -> Option<PathBuf> {
+    pub fn path() -> Option<PathBuf> {
         dirs::config_dir().map(|d| d.join("mic-mute").join("settings.json"))
     }
 
     fn load_from_file() -> Option<Self> {
-        let path = Self::config_path()?;
+        let path = Self::path()?;
         let data = std::fs::read_to_string(path).ok()?;
         serde_json::from_str(&data).ok()
     }
 
     /// Returns the last-modified time of the settings file, or None if it doesn't exist.
     pub fn mtime() -> Option<std::time::SystemTime> {
-        Self::config_path()
+        Self::path()
             .and_then(|p| std::fs::metadata(p).ok())
             .and_then(|m| m.modified().ok())
     }
 
     pub fn save(&self) -> Result<()> {
-        if let Some(path) = Self::config_path() {
+        if let Some(path) = Self::path() {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
             let data = serde_json::to_string_pretty(self)?;
             std::fs::write(path, data)?;
         }
+        Ok(())
+    }
+
+    /// Opens the settings JSON in the user's default text editor. Persist a
+    /// default configuration first so this also works before the first change.
+    pub fn open_in_editor(&self) -> Result<()> {
+        let path = Self::path().ok_or_else(|| anyhow::anyhow!("Settings directory unavailable"))?;
+        if !path.exists() {
+            self.save()?;
+        }
+        Command::new("open").arg("-t").arg(path).spawn()?;
         Ok(())
     }
 }
@@ -93,6 +132,11 @@ mod tests {
     #[test]
     fn test_default_settings_show_popup() {
         assert!(Settings::default().show_popup);
+        assert!(!Settings::default().diagnostic_logging);
+        assert_eq!(
+            Settings::default().overlay_position,
+            OverlayPosition::TopCenter
+        );
     }
 
     #[test]
@@ -107,6 +151,7 @@ mod tests {
         .unwrap();
 
         assert!(loaded.show_popup);
+        assert_eq!(loaded.overlay_position, OverlayPosition::TopCenter);
     }
 
     #[test]
@@ -152,6 +197,8 @@ mod tests {
             show_in_dock: false,
             launch_at_login: false,
             show_popup: false,
+            diagnostic_logging: true,
+            overlay_position: OverlayPosition::BottomRight,
         };
 
         let json = serde_json::to_string_pretty(&s).unwrap();
@@ -161,6 +208,8 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&tmp_path).unwrap()).unwrap();
         assert_eq!(loaded.mic_shortcut.key, "M");
         assert!(!loaded.show_popup);
+        assert!(loaded.diagnostic_logging);
+        assert_eq!(loaded.overlay_position, OverlayPosition::BottomRight);
 
         let _ = fs::remove_file(&tmp_path);
     }

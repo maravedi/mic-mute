@@ -2,7 +2,7 @@ use crate::about::show_about;
 use crate::camera::CameraController;
 use crate::launch_at_login;
 use crate::mic::MicController;
-use crate::settings::Settings;
+use crate::settings::{OverlayPosition, Settings};
 use crate::ui::UI;
 use async_std::task;
 use global_hotkey::GlobalHotKeyEvent;
@@ -38,6 +38,10 @@ pub struct EventIds {
     pub button_launch_at_login: MenuId,
     pub button_show_in_dock: MenuId,
     pub button_show_popup: MenuId,
+    pub button_diagnostic_logging: MenuId,
+    pub button_open_diagnostic_log: MenuId,
+    pub button_open_settings: MenuId,
+    pub overlay_position_items: Vec<(MenuId, OverlayPosition)>,
     pub button_about: MenuId,
     pub button_quit: MenuId,
     pub shortcut_mic: Arc<AtomicU32>,
@@ -52,13 +56,33 @@ fn update_mic(
     let mut controller = controller.write();
     if toggle || controller.should_enforce_mute() {
         let state = if toggle { None } else { Some(true) };
+        let state_source = if toggle {
+            "user action"
+        } else {
+            "mute enforcement"
+        };
+        let muted_before = controller.muted;
+        log::info!(
+            "Microphone update requested: source={}, requested_state={:?}, muted_before={}",
+            state_source,
+            state,
+            muted_before
+        );
         if let Err(err) = controller.toggle(state) {
             log::error!("Failed to update microphone mute state: {}", err);
         }
         let device_name = controller.active_device_name();
+        log::info!(
+            "Microphone update completed: muted_after={}, default_input={:?}",
+            controller.muted,
+            device_name
+        );
         let mut ui = ui.write();
-        ui.update_mic(controller.muted, device_name.as_deref())
-            .unwrap();
+        if let Err(err) = ui.update_mic(controller.muted, device_name.as_deref()) {
+            log::error!("Failed to update mute indicator UI: {}", err);
+        } else {
+            log::info!("Mute indicator UI updated: muted={}", controller.muted);
+        }
     }
     if toggle && !controller.muted {
         task::spawn(async move {
@@ -87,6 +111,10 @@ pub fn start(
         button_launch_at_login,
         button_show_in_dock,
         button_show_popup,
+        button_diagnostic_logging,
+        button_open_diagnostic_log,
+        button_open_settings,
+        overlay_position_items,
         button_about,
         button_quit,
         shortcut_mic,
@@ -187,6 +215,38 @@ pub fn start(
                 drop(s);
                 if let Err(e) = ui.write().set_popup_enabled(visible) {
                     log::error!("Failed to apply popup setting: {}", e);
+                }
+            } else if event.id == button_diagnostic_logging {
+                let mut s = settings.write();
+                s.diagnostic_logging = !s.diagnostic_logging;
+                let enabled = s.diagnostic_logging;
+                if let Err(e) = s.save() {
+                    log::error!("Failed to save diagnostic logging setting: {}", e);
+                }
+                drop(s);
+                ui.write().set_diagnostic_logging_enabled(enabled);
+                crate::set_diagnostic_logging(enabled);
+            } else if event.id == button_open_diagnostic_log {
+                if let Err(e) = crate::open_diagnostic_log() {
+                    log::error!("Failed to open diagnostic log: {}", e);
+                }
+            } else if event.id == button_open_settings {
+                if let Err(e) = settings.read().open_in_editor() {
+                    log::error!("Failed to open settings: {}", e);
+                }
+            } else if let Some(position) = overlay_position_items
+                .iter()
+                .find_map(|(id, position)| (event.id == *id).then_some(*position))
+            {
+                trace!("Overlay position selected: {:?}", position);
+                let mut s = settings.write();
+                s.overlay_position = position;
+                if let Err(e) = s.save() {
+                    log::error!("Failed to save overlay position setting: {}", e);
+                }
+                drop(s);
+                if let Err(e) = ui.write().set_overlay_position(position) {
+                    log::error!("Failed to apply overlay position: {}", e);
                 }
             } else if event.id == button_about {
                 trace!("About tray menu item selected");

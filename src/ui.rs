@@ -1,7 +1,7 @@
 use crate::config::AppVars;
 use crate::event_loop::{create, EventIds, EventLoopMessage};
 use crate::popup::Popup;
-use crate::settings::Settings;
+use crate::settings::{OverlayPosition, Settings};
 use crate::shortcuts::Shortcuts;
 use crate::tray::Tray;
 use anyhow::{Context, Result};
@@ -30,8 +30,13 @@ impl UI {
         settings: &Settings,
     ) -> Result<(Self, EventLoopMessage, EventIds)> {
         let event_loop = create();
-        let popup = Popup::new(&event_loop, mic_muted, settings.show_popup)
-            .context("Failed to setup popup window")?;
+        let popup = Popup::new(
+            &event_loop,
+            mic_muted,
+            settings.show_popup,
+            settings.overlay_position,
+        )
+        .context("Failed to setup popup window")?;
         let theme = popup.get_theme();
         let tray = Tray::new(
             mic_muted,
@@ -40,6 +45,8 @@ impl UI {
             settings.launch_at_login,
             settings.show_in_dock,
             settings.show_popup,
+            settings.diagnostic_logging,
+            settings.overlay_position,
             &settings.mic_shortcut,
         )
         .context("Failed to create system tray")?;
@@ -50,6 +57,10 @@ impl UI {
             button_launch_at_login: tray.launch_at_login_id().clone(),
             button_show_in_dock: tray.show_in_dock_id().clone(),
             button_show_popup: tray.show_popup_id().clone(),
+            button_diagnostic_logging: tray.diagnostic_logging_id().clone(),
+            button_open_diagnostic_log: tray.open_diagnostic_log_id().clone(),
+            button_open_settings: tray.open_settings_id().clone(),
+            overlay_position_items: tray.overlay_position_ids(),
             button_about: tray.about_id().clone(),
             button_quit: tray.quit_id().clone(),
             shortcut_mic: Arc::new(AtomicU32::new(shortcuts.mic_hotkey.id())),
@@ -103,6 +114,18 @@ impl UI {
         Ok(())
     }
 
+    pub fn set_diagnostic_logging_enabled(&mut self, enabled: bool) {
+        self.tray.diagnostic_logging.set_checked(enabled);
+    }
+
+    pub fn set_overlay_position(&mut self, position: OverlayPosition) -> Result<()> {
+        self.popup
+            .set_position(position)
+            .context("Failed to apply overlay position")?;
+        self.tray.set_overlay_position(position);
+        Ok(())
+    }
+
     /// Apply all settings to the live app state.
     /// Safe to call whenever settings change — all operations are idempotent.
     pub fn apply_settings(&mut self, settings: &Settings) -> Result<()> {
@@ -114,6 +137,7 @@ impl UI {
 
         // Sync popup visibility with the persisted setting
         self.set_popup_enabled(settings.show_popup)?;
+        self.set_overlay_position(settings.overlay_position)?;
 
         // Sync dock visibility and its tray checkbox
         self.tray.show_in_dock.set_checked(settings.show_in_dock);
@@ -126,6 +150,11 @@ impl UI {
         if let Err(e) = crate::launch_at_login::set(settings.launch_at_login) {
             log::error!("Failed to apply launch_at_login setting: {}", e);
         }
+
+        self.tray
+            .diagnostic_logging
+            .set_checked(settings.diagnostic_logging);
+        crate::set_diagnostic_logging(settings.diagnostic_logging);
 
         Ok(())
     }

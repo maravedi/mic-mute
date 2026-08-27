@@ -7,7 +7,7 @@ use objc::runtime::Object;
 use tao::dpi::LogicalSize;
 use tao::window::Theme;
 
-const MUTED_DESCRIPTION: &str = "Mic off";
+const MUTED_DESCRIPTION: &str = "Mic muted";
 const UNMUTED_DESCRIPTION: &str = "Mic on";
 const CAMERA_MUTED_DESCRIPTION: &str = "Camera off";
 const CAMERA_UNMUTED_DESCRIPTION: &str = "Camera on";
@@ -28,11 +28,11 @@ pub fn get_camera_mute_description_text(muted: bool) -> &'static str {
     }
 }
 
-/// Vertically-centered 18pt-tall rect spanning the full width.
+/// Vertically-centered 20pt-tall rect spanning the full width.
 /// Matches the original layout so the NSStackView stays at a fixed size
 /// and does not activate Auto Layout resizing on the window.
 fn get_frame_rect(size: LogicalSize<f64>) -> NSRect {
-    const LINE_HEIGHT: f64 = 18.;
+    const LINE_HEIGHT: f64 = 20.;
     NSRect::new(
         NSPoint::new(0., (size.height - LINE_HEIGHT) / 2.),
         NSSize::new(size.width, LINE_HEIGHT),
@@ -41,15 +41,13 @@ fn get_frame_rect(size: LogicalSize<f64>) -> NSRect {
 
 fn get_text_color(muted: bool, theme: Theme) -> id {
     unsafe {
-        // 239, 68, 68 (light mode red) - #ef4444 / 248, 113, 113 (dark mode red) - #f87171
-        let dark_red = NSColor::colorWithRed_green_blue_alpha_(nil, 0.9372, 0.2666, 0.2666, 1.);
-        let light_red = NSColor::colorWithRed_green_blue_alpha_(nil, 0.9725, 0.4431, 0.4431, 1.);
         let black = NSColor::colorWithRed_green_blue_alpha_(nil, 0., 0., 0., 1.);
         let white = NSColor::colorWithRed_green_blue_alpha_(nil, 1., 1., 1., 1.);
+        if muted {
+            return white;
+        }
         match theme {
-            Theme::Light if muted => dark_red,
             Theme::Light => black,
-            Theme::Dark if muted => light_red,
             _ => white,
         }
     }
@@ -71,7 +69,8 @@ fn get_textfield(text: &str, color: id, frame: NSRect) -> id {
         let _: () = msg_send![label, setAlignment: NSALIGNMENT_CENTER];
         let ns_font = class!(NSFont);
         let default_size: f64 = msg_send![ns_font, systemFontSize];
-        let custom_font: *mut Object = msg_send![ns_font, systemFontOfSize: default_size + 3.0_f64];
+        let custom_font: *mut Object =
+            msg_send![ns_font, boldSystemFontOfSize: default_size + 2.0_f64];
         let _: () = msg_send![label, setFont: custom_font];
         label
     }
@@ -190,13 +189,14 @@ impl PopupContent {
         }
         let camera_label = get_textfield(
             get_camera_mute_description_text(camera_muted),
-            get_text_color(camera_muted, theme),
+            get_text_color(mic_muted, theme),
             frame,
         );
 
         let view = unsafe {
             let stack: *mut Object = msg_send![class!(NSStackView), alloc];
             let _: () = msg_send![stack, initWithFrame: frame];
+            let _: () = msg_send![stack, setSpacing: 10.0_f64];
             const GRAVITY_CENTER: i32 = 2;
             let _: () = msg_send![stack, addView: mic_image inGravity: GRAVITY_CENTER];
             let _: () = msg_send![mic_image, release];
@@ -244,7 +244,7 @@ impl PopupContent {
             self.camera_label.setStringValue_(cam_str);
             let _: () = msg_send![cam_str, release];
             let _: () =
-                msg_send![self.camera_label, setTextColor: get_text_color(camera_muted, theme)];
+                msg_send![self.camera_label, setTextColor: get_text_color(mic_muted, theme)];
         }
         Ok(self)
     }
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_mic_mute_description_muted() {
-        assert_eq!(get_mic_mute_description_text(true), "Mic off");
+        assert_eq!(get_mic_mute_description_text(true), "Mic muted");
     }
 
     #[test]

@@ -16,7 +16,9 @@ The file is JSON. The complete default configuration is:
   },
   "show_in_dock": false,
   "launch_at_login": false,
-  "show_popup": true
+  "show_popup": true,
+  "diagnostic_logging": false,
+  "overlay_position": "top_center"
 }
 ```
 
@@ -39,6 +41,26 @@ Controls whether Mic Mute appears in the macOS Dock.
 - `true`: show an application icon in the Dock.
 
 The tray menu can also toggle this setting.
+
+### `diagnostic_logging`
+
+Controls detailed diagnostic logging.
+
+- `false` (default): do not write new diagnostic entries.
+- `true`: write diagnostics to `~/Library/Logs/mic-mute/mic-mute.log`.
+
+Choose **Open Diagnostic Log…** from the tray menu to open this file. The
+tray menu also includes **Open Settings…** to open this JSON file directly.
+
+### `overlay_position`
+
+Controls the popup's anchor within the screen currently under the cursor. It
+does not lock the popup to a particular monitor.
+
+- `top_left`, `top_center` (default), or `top_right`
+- `bottom_left`, `bottom_center`, or `bottom_right`
+
+The tray menu's **Overlay Position** submenu can also change this setting.
 
 ### `launch_at_login`
 

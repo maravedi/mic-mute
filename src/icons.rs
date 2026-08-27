@@ -8,39 +8,60 @@ pub struct IconColor {
 }
 
 pub fn popup_icon_color(muted: bool, theme: Theme) -> IconColor {
-    match theme {
-        Theme::Light if muted => IconColor {
-            r: 239,
-            g: 68,
-            b: 68,
-        }, // #ef4444
-        Theme::Light => IconColor { r: 0, g: 0, b: 0 },
-        Theme::Dark if muted => IconColor {
-            r: 248,
-            g: 113,
-            b: 113,
-        }, // #f87171
-        _ => IconColor {
+    let _ = theme;
+    if muted {
+        IconColor {
             r: 255,
-            g: 255,
-            b: 255,
-        },
+            g: 69,
+            b: 58,
+        }
+    } else {
+        IconColor {
+            r: 174,
+            g: 174,
+            b: 178,
+        }
     }
 }
 
-pub fn tray_icon_color(muted: bool) -> IconColor {
+pub fn tray_icon_color(muted: bool, theme: Theme) -> IconColor {
     if muted {
         IconColor {
             r: 239,
             g: 68,
             b: 68,
-        } // #ef4444
+        }
+    } else if theme == Theme::Light {
+        IconColor { r: 0, g: 0, b: 0 }
     } else {
         IconColor {
             r: 255,
             g: 255,
             b: 255,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tray_icon_is_black_in_light_mode_when_unmuted() {
+        let color = tray_icon_color(false, Theme::Light);
+        assert_eq!((color.r, color.g, color.b), (0, 0, 0));
+    }
+
+    #[test]
+    fn tray_icon_is_white_in_dark_mode_when_unmuted() {
+        let color = tray_icon_color(false, Theme::Dark);
+        assert_eq!((color.r, color.g, color.b), (255, 255, 255));
+    }
+
+    #[test]
+    fn tray_icon_is_red_when_muted() {
+        let color = tray_icon_color(true, Theme::Light);
+        assert_eq!((color.r, color.g, color.b), (239, 68, 68));
     }
 }
 
@@ -69,7 +90,9 @@ pub fn rasterize_svg(svg_bytes: &[u8], color: &IconColor) -> Result<(Vec<u8>, u3
     // tiny-skia produces premultiplied RGBA; un-premultiply for callers.
     let raw = pixmap.take();
     let straight: Vec<u8> = raw
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|p| {
             let a = p[3];
             if a == 0 {

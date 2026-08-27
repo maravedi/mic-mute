@@ -361,6 +361,10 @@ pub struct MicController<B = CoreAudioBackend> {
     saved_volumes: HashMap<AudioDeviceID, f32>,
     volume_fallback_devices: HashSet<AudioDeviceID>,
     native_muted_devices: HashSet<AudioDeviceID>,
+    /// Devices that report a writable mute property but never reflect a changed
+    /// value. Virtual audio devices commonly behave this way; they cannot be
+    /// verified, so they must not block the status of verified microphones.
+    unreliable_mute_devices: HashSet<AudioDeviceID>,
     backend: B,
 }
 
@@ -372,6 +376,7 @@ impl<B: Default> Default for MicController<B> {
             saved_volumes: HashMap::new(),
             volume_fallback_devices: HashSet::new(),
             native_muted_devices: HashSet::new(),
+            unreliable_mute_devices: HashSet::new(),
             backend: B::default(),
         }
     }
@@ -383,6 +388,7 @@ impl<B: AudioBackend> Debug for MicController<B> {
             .field("names", &self.names().unwrap_or_default())
             .field("muted", &self.muted)
             .field("desired_muted", &self.desired_muted)
+            .field("unreliable_mute_devices", &self.unreliable_mute_devices)
             .finish()
     }
 }
@@ -401,6 +407,7 @@ impl<B: AudioBackend> MicController<B> {
             saved_volumes: HashMap::new(),
             volume_fallback_devices: HashSet::new(),
             native_muted_devices: HashSet::new(),
+            unreliable_mute_devices: HashSet::new(),
             backend,
         };
         trace!("Creating audio controller");
@@ -469,6 +476,13 @@ impl<B: AudioBackend> MicController<B> {
     fn is_muted_all(&self) -> Result<bool> {
         let mut controllable = false;
         for id in &self.get_input_device_ids()? {
+            if self.unreliable_mute_devices.contains(id) {
+                trace!(
+                    "Skipping device {} while calculating mute status because its mute readback is unreliable",
+                    id
+                );
+                continue;
+            }
             match self.is_muted(*id)? {
                 Some(state) => {
                     controllable = true;
@@ -492,6 +506,9 @@ impl<B: AudioBackend> MicController<B> {
 
     fn all_devices_match_state(&self, ids: &[AudioDeviceID], state: bool) -> Result<bool> {
         for id in ids {
+            if self.unreliable_mute_devices.contains(id) {
+                continue;
+            }
             if let Some(actual) = self.is_muted(*id)? {
                 if actual != state {
                     return Ok(false);
@@ -518,6 +535,13 @@ impl<B: AudioBackend> MicController<B> {
         audio_device_id: AudioDeviceID,
         state: bool,
     ) -> Result<Option<AudioDeviceID>> {
+        if self.unreliable_mute_devices.contains(&audio_device_id) {
+            trace!(
+                "Skipping device {} because its mute state cannot be verified",
+                audio_device_id
+            );
+            return Ok(None);
+        }
         let was_muted = self.is_muted(audio_device_id)?;
         let set_result = self.backend.set_mute(audio_device_id, state)?;
         if set_result.is_none() {
@@ -535,11 +559,15 @@ impl<B: AudioBackend> MicController<B> {
         } else {
             self.volume_fallback_devices.remove(&audio_device_id);
             if !self.wait_for_device_state(audio_device_id, state)? {
-                return Err(anyhow!(
-                    "audio device {} did not reach requested mute state {} after native mute set",
+                let name = self.backend.device_name(audio_device_id)?;
+                log::warn!(
+                    "Skipping device {} ({}) because its mute property does not retain or report the requested state {}",
                     audio_device_id,
+                    name,
                     state
-                ));
+                );
+                self.unreliable_mute_devices.insert(audio_device_id);
+                return Ok(None);
             }
             if state && was_muted == Some(false) {
                 self.native_muted_devices.insert(audio_device_id);
@@ -962,7 +990,7 @@ mod tests {
     }
 
     #[test]
-    fn native_mute_readback_mismatch_does_not_claim_muted() {
+    fn native_mute_readback_mismatch_is_excluded_from_verified_status() {
         let mut device = Device::native("Built-in", false);
         device.ignore_set_mute = true;
         let backend = FakeBackend::with_devices(vec![(1, device)]);
@@ -970,9 +998,26 @@ mod tests {
 
         let result = controller.mute_all(true);
 
-        assert!(result.is_err());
+        assert!(result.is_ok());
         assert!(!controller.muted);
         assert!(controller.should_enforce_mute());
+        assert!(controller.unreliable_mute_devices.contains(&1));
+    }
+
+    #[test]
+    fn unreliable_virtual_device_does_not_block_verified_microphone_status() {
+        let mut virtual_device = Device::native("Virtual Audio", false);
+        virtual_device.ignore_set_mute = true;
+        let backend = FakeBackend::with_devices(vec![
+            (1, Device::native("Built-in", false)),
+            (2, virtual_device),
+        ]);
+        let mut controller = MicController::with_backend(backend).unwrap();
+
+        controller.mute_all(true).unwrap();
+
+        assert!(controller.muted);
+        assert!(controller.unreliable_mute_devices.contains(&2));
     }
 
     #[test]

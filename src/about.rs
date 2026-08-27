@@ -5,7 +5,6 @@ use anyhow::Result;
 use cocoa::base::nil;
 use cocoa::foundation::NSString;
 use objc::runtime::Object;
-use std::process::Command;
 
 fn format_shortcut(config: &ShortcutConfig) -> String {
     let mut parts = vec![];
@@ -36,7 +35,7 @@ pub fn show_about(settings: &mut Settings) -> Result<bool> {
 
         let version = env!("CARGO_PKG_VERSION");
         let info = format!(
-            "Mute shortcut: {mic_str}\n\nSettings:\n~/Library/Application Support/mic-mute/settings.json\n\nVersion: {version}\n\nSource:\ngithub.com/brettinternet/mic-mute"
+            "Mute shortcut: {mic_str}\n\nSettings:\n~/Library/Application Support/mic-mute/settings.json\n\nDiagnostic log (when enabled):\n~/Library/Logs/mic-mute/mic-mute.log\n\nVersion: {version}\n\nSource:\ngithub.com/brettinternet/mic-mute"
         );
         let info_str = NSString::alloc(nil).init_str(&info);
         let _: () = msg_send![alert, setInformativeText: info_str];
@@ -60,10 +59,7 @@ pub fn show_about(settings: &mut Settings) -> Result<bool> {
 
     match response {
         1001 => {
-            if let Some(path) = dirs::config_dir().map(|d| d.join("mic-mute").join("settings.json"))
-            {
-                let _ = Command::new("open").arg("-t").arg(&path).spawn();
-            }
+            settings.open_in_editor()?;
             Ok(false)
         }
         1002 => {

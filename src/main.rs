@@ -24,8 +24,12 @@ use crate::mic::MicController;
 use crate::settings::Settings;
 use crate::ui::UI;
 use crate::utils::arc_lock;
-use env_logger::{Builder, Env};
+use anyhow::{Context, Result};
+use env_logger::{Builder, Target};
 use log::{info, trace};
+use std::fs::{self, OpenOptions};
+use std::path::PathBuf;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -35,11 +39,56 @@ extern "C" fn handle_signal(_: libc::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
 }
 
-fn main() {
-    Builder::from_env(Env::default().default_filter_or("trace")).init();
-    info!("Starting app");
+pub fn diagnostic_log_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join("Library/Logs/mic-mute/mic-mute.log"))
+}
 
+pub fn open_diagnostic_log() -> Result<()> {
+    let path = diagnostic_log_path().context("Diagnostic log directory unavailable")?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    OpenOptions::new().create(true).append(true).open(&path)?;
+    Command::new("open").arg("-t").arg(path).spawn()?;
+    Ok(())
+}
+
+fn init_logging(enabled: bool) {
+    // Finder inherits the desktop session's RUST_LOG value. Always retain full
+    // diagnostics in the app's private log file so UI/mute state can be
+    // investigated even when that session-level value is restrictive.
+    let mut builder = Builder::new();
+    builder.filter_level(log::LevelFilter::Trace);
+    if let Some(path) = diagnostic_log_path() {
+        if let Some(parent) = path.parent() {
+            if fs::create_dir_all(parent).is_ok() {
+                if let Ok(file) = OpenOptions::new().create(true).append(true).open(&path) {
+                    builder.target(Target::Pipe(Box::new(file)));
+                }
+            }
+        }
+    }
+    builder.init();
+    set_diagnostic_logging(enabled);
+}
+
+pub fn set_diagnostic_logging(enabled: bool) {
+    if enabled {
+        log::set_max_level(log::LevelFilter::Trace);
+        info!("Diagnostic logging enabled");
+    } else {
+        info!("Diagnostic logging disabled");
+        log::set_max_level(log::LevelFilter::Off);
+    }
+}
+
+fn main() {
     let mut settings = Settings::load();
+    init_logging(settings.diagnostic_logging);
+    info!("Starting app");
+    if let Some(path) = diagnostic_log_path() {
+        info!("Diagnostic log: {}", path.display());
+    }
 
     // On first run (or after upgrading from a version without launch_at_login in
     // settings), adopt the existing plist state so we don't silently disable it.
