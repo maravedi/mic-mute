@@ -43,7 +43,11 @@ I have not elected to sign the app by joining the Apple Developer Program. The r
 
 ## Build
 
-Install dependencies with `mise`. Or you may [install Rust](https://www.rust-lang.org/tools/install). Then, [install go-task](https://taskfile.dev/installation/) or run the commands from the Taskfile separately yourself.
+Install [Mise](https://mise.jdx.dev/getting-started.html) and [go-task](https://taskfile.dev/installation/), then initialize the project. Mise installs the project's Rust, Watchexec, and Lefthook versions.
+
+```sh
+task init
+```
 
 Install the build dependencies, build and bundle the app.
 
@@ -61,7 +65,7 @@ Once the build is complete, a finder window should open to the built bundle in t
 
 ### Setup
 
-[Install Rust](https://www.rust-lang.org/tools/install). Then, [install go-task](https://taskfile.dev/installation/) or run the commands from the Taskfile separately yourself.
+[Install Mise](https://mise.jdx.dev/getting-started.html), then [install go-task](https://taskfile.dev/installation/). Mise installs the project's Rust, Watchexec, and Lefthook versions; `task init` cannot install Mise itself.
 
 Install development dependencies.
 

@@ -28,7 +28,7 @@ tasks:
     desc: Compile, run and watch for changes
     aliases: [watch, run]
     cmds:
-      - watchexec -e rs,toml -- cargo run
+      - mise exec -- watchexec -e rs,toml -- cargo run
     env:
       RUST_BACKTRACE: 1
       RUST_LOG: trace
@@ -43,18 +43,18 @@ tasks:
   check:
     aliases: [lint]
     cmds:
-      - cargo clippy --locked --release -- -D warnings
-      - cargo fmt -- --check
+      - mise exec -- cargo clippy --locked --release -- -D warnings
+      - mise exec -- cargo fmt -- --check
 
   fix:
     desc: Fix lint and formatting issues
     cmds:
-      - cargo clippy --locked --release --fix --allow-dirty --allow-staged -- -D warnings
-      - cargo fmt
+      - mise exec -- cargo clippy --locked --release --fix --allow-dirty --allow-staged -- -D warnings
+      - mise exec -- cargo fmt
 
   test:
     cmds:
-      - cargo test
+      - mise exec -- cargo test --locked
 
   build:
     cmds:
@@ -67,21 +67,21 @@ tasks:
     internal: true
     desc: Bundle dependencies
     cmds:
-      - cargo install cargo-bundle
+      - mise exec -- cargo install cargo-bundle
     status:
       - test -f $HOME/.cargo/bin/cargo-bundle
 
   build-target:
     cmds:
-      - cargo build --locked --release --target {{ .TARGET }}
-      - cargo bundle --release --target {{ .TARGET }}
+      - mise exec -- cargo build --locked --release --target {{ .TARGET }}
+      - mise exec -- cargo bundle --release --target {{ .TARGET }}
       - /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Mic Mute uses camera access to detect and control camera mute status.'" ./target/{{ .TARGET }}/release/bundle/osx/Mic\ Mute.app/Contents/Info.plist || true
       - open ./target/{{ .TARGET }}/release/bundle/osx
 
   release:
     cmds:
       - task: release-dependencies
-      - cargo clean
+      - mise exec -- cargo clean
       - task: release-target
         vars:
           TARGET: aarch64-apple-darwin
@@ -92,8 +92,8 @@ tasks:
     internal: true
     desc: Release dependencies
     cmds:
-      - cargo install apple-codesign
-      - cargo install toml-cli
+      - mise exec -- cargo install apple-codesign
+      - mise exec -- cargo install toml-cli
     status:
       - test -f $HOME/.cargo/bin/apple-codesign
       - test -f $HOME/.cargo/bin/toml-cli
@@ -101,8 +101,8 @@ tasks:
   release-target:
     internal: true
     cmds:
-      - cargo build --locked --release --target {{ .TARGET }}
-      - cargo bundle --release --target {{ .TARGET }}
+      - mise exec -- cargo build --locked --release --target {{ .TARGET }}
+      - mise exec -- cargo bundle --release --target {{ .TARGET }}
       - /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Mic Mute uses camera access to detect and control camera mute status.'" ./target/{{ .TARGET }}/release/bundle/osx/Mic\ Mute.app/Contents/Info.plist || true
       - rcodesign sign --pem-source {{ .PEM_FILE }} ./target/{{ .TARGET }}/release/bundle/osx/Mic\ Mute.app
       - hdiutil create -volname {{ .TITLE }} -srcfolder ./target/{{ .TARGET }}/release/bundle/osx -ov -format UDZO {{ .TITLE }}.dmg
@@ -112,11 +112,11 @@ tasks:
     vars:
       PEM_FILE: sign.crt
       NAME:
-        sh: toml get Cargo.toml package.name --raw
+        sh: mise exec -- toml get Cargo.toml package.name --raw
       VERSION:
-        sh: toml get Cargo.toml package.version --raw
+        sh: mise exec -- toml get Cargo.toml package.version --raw
       TITLE: "{{ .NAME }}-{{ .VERSION }}-{{ .TARGET }}"
 
   clean:
     cmds:
-      - cargo clean
+      - mise exec -- cargo clean

@@ -7,21 +7,16 @@ use std::process::Command;
 ///
 /// The overlay always follows the display containing the cursor; this setting
 /// only controls where it is placed within that display.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OverlayPosition {
     TopLeft,
+    #[default]
     TopCenter,
     TopRight,
     BottomLeft,
     BottomCenter,
     BottomRight,
-}
-
-impl Default for OverlayPosition {
-    fn default() -> Self {
-        Self::TopCenter
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
